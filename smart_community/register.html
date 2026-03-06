@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - LoRa Smart Village</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { 
+            font-family: 'Sarabun', 'Plus Jakarta Sans', sans-serif; 
+            background-color: #0B1121; 
+        }
+        .glass-card {
+            background: rgba(30, 41, 59, 0.4);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+        .input-group {
+            transition: all 0.3s ease;
+        }
+        .input-group:focus-within {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(16, 185, 129, 0.5); /* Emerald focus */
+            box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.1);
+        }
+        .floating-orb {
+            animation: float 15s infinite alternate ease-in-out;
+        }
+        @keyframes float {
+            0% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(-30px, 50px) scale(1.1); }
+            100% { transform: translate(20px, -20px) scale(0.9); }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center relative overflow-hidden text-slate-200 selection:bg-emerald-500/30">
+
+    <div class="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+        <div class="absolute top-[-10%] right-[-10%] w-[50vw] h-[50vw] rounded-full bg-indigo-600/10 blur-[100px] floating-orb"></div>
+        <div class="absolute bottom-[-10%] left-[-10%] w-[60vw] h-[60vw] rounded-full bg-emerald-600/10 blur-[120px] floating-orb" style="animation-delay: -3s;"></div>
+        <div class="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay"></div>
+    </div>
+
+    <div class="relative z-10 w-full max-w-md p-6">
+        <div class="glass-card rounded-[2.5rem] p-10 relative overflow-hidden">
+            <div class="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-white/20 to-transparent"></div>
+
+            <div class="text-center mb-10">
+                <h1 class="text-2xl font-extrabold text-white tracking-tight font-['Plus_Jakarta_Sans']">
+                    สร้างบัญชีผู้ดูแล
+                </h1>
+                <p class="text-slate-400 mt-2 text-xs font-bold tracking-wider uppercase">LoRa Smart Village Portal</p>
+            </div>
+
+            <form onsubmit="handleRegister(event)" class="space-y-4">
+                
+                <div class="input-group flex items-center bg-slate-800/50 rounded-2xl border border-slate-700 p-1.5">
+                    <div class="w-12 flex justify-center text-slate-500">
+                        <i data-lucide="user" class="w-5 h-5"></i>
+                    </div>
+                    <input type="text" id="reg-name" 
+                        class="flex-1 bg-transparent py-2.5 pr-4 text-white placeholder-slate-600 outline-none w-full font-medium" 
+                        placeholder="ชื่อ-นามสกุล" required>
+                </div>
+
+                <div class="input-group flex items-center bg-slate-800/50 rounded-2xl border border-slate-700 p-1.5">
+                    <div class="w-12 flex justify-center text-slate-500">
+                        <i data-lucide="mail" class="w-5 h-5"></i>
+                    </div>
+                    <input type="email" id="reg-email" 
+                        class="flex-1 bg-transparent py-2.5 pr-4 text-white placeholder-slate-600 outline-none w-full font-medium" 
+                        placeholder="อีเมลแอดเดรส" required>
+                </div>
+
+                <div class="input-group flex items-center bg-slate-800/50 rounded-2xl border border-slate-700 p-1.5">
+                    <div class="w-12 flex justify-center text-slate-500">
+                        <i data-lucide="lock" class="w-5 h-5"></i>
+                    </div>
+                    <input type="password" id="reg-pass" 
+                        class="flex-1 bg-transparent py-2.5 pr-4 text-white placeholder-slate-600 outline-none w-full font-medium" 
+                        placeholder="รหัสผ่าน" required>
+                </div>
+
+                <div class="input-group flex items-center bg-slate-800/50 rounded-2xl border border-slate-700 p-1.5">
+                    <div class="w-12 flex justify-center text-slate-500">
+                        <i data-lucide="shield-check" class="w-5 h-5"></i>
+                    </div>
+                    <input type="password" id="reg-pass-confirm" 
+                        class="flex-1 bg-transparent py-2.5 pr-4 text-white placeholder-slate-600 outline-none w-full font-medium" 
+                        placeholder="ยืนยันรหัสผ่านอีกครั้ง" required>
+                </div>
+
+                <button type="submit" class="w-full relative group mt-6 pt-4">
+                    <div class="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-2xl blur opacity-50 group-hover:opacity-100 transition duration-300"></div>
+                    <div class="relative w-full bg-slate-900 border border-slate-700/50 text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 transform transition-all active:scale-[0.98]">
+                        <span id="btn-text">สมัครสมาชิก</span>
+                        <i data-lucide="user-plus" class="w-5 h-5 group-hover:scale-110 transition-transform"></i>
+                    </div>
+                </button>
+            </form>
+
+            <div class="mt-8 text-center">
+                <a href="login.html" class="text-sm text-slate-400 hover:text-white transition-colors">
+                    มีบัญชีอยู่แล้ว? <span class="text-emerald-400 font-bold ml-1 hover:underline underline-offset-4">เข้าสู่ระบบ</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+        
+        async function handleRegister(e) {
+    e.preventDefault();
+    const name = document.getElementById('reg-name').value;
+    const email = document.getElementById('reg-email').value;
+    const pass = document.getElementById('reg-pass').value;
+    const passConfirm = document.getElementById('reg-pass-confirm').value;
+
+    if(pass !== passConfirm) {
+        alert('⚠️ รหัสผ่านไม่ตรงกัน');
+        return;
+    }
+
+    const btnText = document.getElementById('btn-text');
+    btnText.innerText = 'กำลังสร้างบัญชี...';
+
+    try {
+        const res = await fetch('api/register.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                username: name, 
+                email: email, 
+                password: pass 
+            })
+        });
+        const d = await res.json();
+
+        if (d.status === 'success') {
+            alert('✅ สมัครสมาชิกสำเร็จ!');
+            window.location.href = 'login.html';
+        } else {
+            alert('❌ ' + d.message);
+            btnText.innerText = 'สมัครสมาชิก';
+        }
+    } catch (err) {
+        alert('⚠️ ติดปัญหาการเชื่อมต่อ API');
+        btnText.innerText = 'สมัครสมาชิก';
+    }
+}
+    </script>
+</body>
+</html>
