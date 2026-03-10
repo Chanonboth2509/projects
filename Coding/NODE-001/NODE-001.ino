@@ -1,0 +1,233 @@
+#include <Arduino.h>
+#include "LoRaWan_APP.h"
+#include <Wire.h>
+#include "HT_SSD1306Wire.h"
+#include "dw_font.h"
+#include "font_th_sarabun_new_regular20.h" 
+#include <Adafruit_GFX.h>
+#include <Adafruit_SH110X.h>
+
+String devID = "NODE-001"; 
+String relayID = "SEARCHING"; 
+
+String lastRelayMsg = "";
+unsigned long lastRelayTime = 0;
+
+#define ROT_CLK 2
+#define ROT_DT  3
+#define ROT_SW  4
+#define BUZZER  26
+#define LED_PIN 45          
+
+#define VBAT_READ 1
+#define VBAT_CTRL 37
+#define HB_INTV 40000 
+#define RF_FREQ 923000000 
+
+SSD1306Wire dispI(0x3c, 500000, SDA_OLED, SCL_OLED, GEOMETRY_128_64, RST_OLED);
+Adafruit_SH1106G dispE(128, 64, &Wire1);
+dw_font_t myfont;
+
+RTC_DATA_ATTR float stablePct = -1.0; 
+int rawDebug = 0; 
+
+const char* menus[] = { "ขอความช่วยเหลือ", "ไฟไหม้ !", "มีผู้บุกรุก/โจร", "เจ็บป่วยฉุกเฉิน", "อุบัติเหตุ/รถชน", "น้ำท่วม", "สัตว์มีพิษ", "ทดสอบระบบ", "โหมดชาร์จ (ปิดจอ)" };
+const int NUM_MENUS = sizeof(menus) / sizeof(menus[0]);
+
+int menuIdx=0, txtX=10; 
+int16_t rssi=0;
+int8_t snr=0;
+
+volatile bool rotated=false; 
+volatile int lastClk=HIGH;
+volatile unsigned long lastRotTime = 0; 
+volatile int rotStep = 0;                
+const int ROT_DIVIDER = 2; 
+
+unsigned long lastHb=0, scnTmr=0, lastScrl=0, lastChargeStep=0;
+bool scnOn=true;
+unsigned long ledTimer = 0;
+bool ledState = false;
+int ledBlinkCount = 0; 
+
+enum { LOCKED, IDLE, MENU, SEND } mode = LOCKED;
+int unlockProgress = 0;       
+const int UNLOCK_LIMIT = 8;   
+
+String msg = ""; 
+String senderName = ""; 
+
+static RadioEvents_t RadioEvents;
+void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr);
+void OnTxDone(); void OnTxTimeout();
+
+// --- ฟังก์ชันช่วยเหลือ (Helpers) ---
+void updateBattery() {
+  pinMode(VBAT_CTRL, OUTPUT); digitalWrite(VBAT_CTRL, HIGH); delay(50); 
+  uint32_t rawSum = 0; for(int i=0; i<100; i++) { rawSum += analogRead(VBAT_READ); delay(1); }
+  uint32_t avgRaw = rawSum / 100; rawDebug = avgRaw; digitalWrite(VBAT_CTRL, LOW); 
+  float currentPct = (float)(avgRaw - 700.0) * 100.0 / (882.0 - 700.0);
+  currentPct = constrain(currentPct, 0.0, 100.0);
+  if (avgRaw >= 1050) stablePct = 100.0; 
+  else { if (stablePct < 0) stablePct = currentPct; else if (currentPct < stablePct) stablePct = (stablePct * 0.95) + (currentPct * 0.05); }
+}
+
+void triggerLed(int count) { ledBlinkCount = count * 2; ledTimer = millis(); ledState = true; digitalWrite(LED_PIN, HIGH); }
+void handleLed() { if (ledBlinkCount > 0 && millis() - ledTimer > 100) { ledTimer = millis(); ledState = !ledState; digitalWrite(LED_PIN, ledState ? HIGH : LOW); ledBlinkCount--; } else if (ledBlinkCount == 0) { digitalWrite(LED_PIN, LOW); } }
+void beep(int n, int d) { for(int i=0;i<n;i++) { digitalWrite(BUZZER, HIGH); delay(d); digitalWrite(BUZZER, LOW); if(n>1) delay(100); } }
+void sosSound() { for(int i=0;i<3;i++) { digitalWrite(BUZZER, HIGH); delay(100); digitalWrite(BUZZER, LOW); delay(50); } }
+void drawP(int16_t x, int16_t y) { dispE.drawPixel(x, y, SH110X_WHITE); }
+void clrP(int16_t x, int16_t y) { dispE.drawPixel(x, y, SH110X_BLACK); }
+void wake() { if(!scnOn) { dispI.displayOn(); dispE.oled_command(SH110X_DISPLAYON); scnOn=true; } scnTmr = millis(); }
+
+void updDispI() {
+  if(!scnOn) return; dispI.clear(); dispI.setFont(ArialMT_Plain_10); dispI.setTextAlignment(TEXT_ALIGN_LEFT);
+  dispI.drawString(0, 0, devID); dispI.setTextAlignment(TEXT_ALIGN_RIGHT);
+  if (rawDebug >= 1050) dispI.drawString(128, 0, "⚡ CHG"); else dispI.drawString(128, 0, String((int)stablePct) + "%");
+  dispI.drawLine(0, 14, 128, 14); dispI.setTextAlignment(TEXT_ALIGN_LEFT);
+  String relaySt = (relayID == "SEARCHING") ? "Scanning..." : relayID;
+  dispI.drawString(0, 18, "Relay Mode: Active"); 
+  dispI.drawString(0, 30, "RSSI: " + String(rssi) + " SNR: " + String(snr));
+  String modeStr = (mode==LOCKED)?"LOCKED":(mode==MENU)?"MENU":(mode==SEND)?"SENDING":"IDLE";
+  dispI.drawString(0, 42, "Mode: " + modeStr);
+  dispI.drawString(0, 54, "Up: " + String(millis()/60000) + "m Raw: " + String(rawDebug)); dispI.display();
+}
+
+void updDispE() {
+  if(!scnOn) return; dispE.clearDisplay(); dispE.setTextSize(1); dispE.setTextColor(SH110X_WHITE);
+  if(mode == LOCKED) {
+    dispE.setCursor(0, 0); dispE.print(devID); dispE.setCursor(80, 0); if(rawDebug >= 1050) dispE.print("CHG"); else dispE.print(String((int)stablePct)+"%");
+    dispE.drawLine(0, 10, 128, 10, SH110X_WHITE); dispE.setCursor(45, 15); dispE.print("LOCKED");
+    dispE.drawRect(14, 30, 100, 10, SH110X_WHITE); int barW = map(unlockProgress, 0, UNLOCK_LIMIT, 0, 96);
+    dispE.fillRect(16, 32, barW, 6, SH110X_WHITE); dispE.setCursor(25, 50); dispE.print("Turn to Unlock");
+  } else if(mode == MENU) {
+    dispE.setCursor(35, 0); dispE.print("-- MENU --"); dispE.setCursor(0, 30); dispE.print("<"); dispE.setCursor(120, 30); dispE.print(">");
+    dw_font_goto(&myfont, 15, 35); dw_font_print(&myfont, (char*)menus[menuIdx]);
+  } else if(mode == SEND) {
+    dispE.setCursor(30, 20); dispE.print("SENDING..."); dispE.drawRect(24, 40, 80, 8, SH110X_WHITE);
+    dispE.fillRect(26, 42, (millis()/30)%78, 4, SH110X_WHITE);
+  } else {
+    if (senderName != "") { dispE.setCursor(0, 10); dispE.print("FROM: " + senderName); } else { dispE.setCursor(0, 10); dispE.print("MESSAGE:"); }
+    dispE.drawLine(0, 24, 128, 24, SH110X_WHITE);
+    if (msg == "") { dispE.setCursor(35, 40); dispE.print("- STANDBY -"); }
+    else { dw_font_goto(&myfont, txtX, 48); dw_font_print(&myfont, (char*)msg.c_str()); }
+    dispE.drawLine(0, 54, 128, 54, SH110X_WHITE); dispE.setCursor(5, 56); dispE.print(devID + " " + String((int)stablePct) + "%");
+  }
+  dispE.display();
+}
+
+void updAll() { updDispI(); updDispE(); }
+
+void IRAM_ATTR isr() {
+  int clk = digitalRead(ROT_CLK); unsigned long now = millis();
+  if(clk != lastClk && clk == LOW) {
+    if (now - lastRotTime > 30) { 
+        if(digitalRead(ROT_DT) == LOW) rotStep++; else rotStep--;
+        if (rotStep >= ROT_DIVIDER) { if(mode==LOCKED) unlockProgress=min(unlockProgress+1, UNLOCK_LIMIT); else menuIdx=(menuIdx+1)%NUM_MENUS; rotStep=0; rotated=true; }
+        else if (rotStep <= -ROT_DIVIDER) { if(mode==LOCKED) unlockProgress=max(unlockProgress-1, 0); else menuIdx=(menuIdx==0)?(NUM_MENUS-1):menuIdx-1; rotStep=0; rotated=true; }
+        lastRotTime = now;
+    }
+  }
+  lastClk = clk;
+}
+
+void OnRxDone(uint8_t *pl, uint16_t sz, int16_t rs, int8_t sn) {
+  char b[255]; memcpy(b, pl, sz); b[sz]='\0'; String in(b);
+  rssi = rs; snr = sn;
+
+  int p1 = in.indexOf('|');
+  String senderID = (p1 != -1) ? in.substring(0, p1) : "";
+  if (senderID == devID) { Radio.Rx(0); return; } 
+
+  // 🌟 Logic Relay: ถ้าเจอ SOS จากเพื่อนบ้าน ให้ช่วยส่งต่อ
+  if(in.indexOf("SOS") != -1 && in != lastRelayMsg) {
+    if(millis() - lastRelayTime > 5000) {
+      lastRelayMsg = in; lastRelayTime = millis();
+      Serial.println("📢 Relay Active: Forwarding SOS from " + senderID);
+      triggerLed(3);
+      String relayPkt = in + "|Via:" + devID; // แปะชื่อเราลงไปว่าช่วยส่ง
+      delay(random(200, 600)); // หน่วงเวลาสุ่มป้องกันคลื่นชนกัน
+      Radio.Send((uint8_t*)relayPkt.c_str(), relayPkt.length());
+      return; 
+    }
+  }
+
+  if(in.indexOf("STATUS") != -1) { Radio.Rx(0); return; } 
+  int p2 = in.indexOf('|', p1 + 1); int p3 = in.lastIndexOf('|');
+  String content = (p2 != -1 && p3 > p2) ? in.substring(p2 + 1, p3) : (p1 != -1 ? in.substring(p1 + 1) : "");
+  content.trim();
+  if(content.length() == 0 || content == msg) { Radio.Rx(0); return; }
+
+  triggerLed(5); wake(); msg = content; senderName = (senderID=="NODE-001")?"HOUSE 1":(senderID=="NODE-012")?"HOUSE 2":senderID;
+  txtX = 128; mode = IDLE; if(in.indexOf("ACK")!=-1 || in.indexOf("รับเรื่อง")!=-1) beep(3, 100); else beep(1, 100);
+  updAll(); Radio.Rx(0);
+}
+
+void setup() {
+  setCpuFrequencyMhz(80); Serial.begin(115200);
+  pinMode(ROT_CLK, INPUT_PULLUP); pinMode(ROT_DT, INPUT_PULLUP); pinMode(ROT_SW, INPUT_PULLUP);
+  pinMode(BUZZER, OUTPUT); digitalWrite(BUZZER, LOW); pinMode(LED_PIN, OUTPUT); digitalWrite(LED_PIN, LOW);
+  attachInterrupt(digitalPinToInterrupt(ROT_CLK), isr, CHANGE);
+  analogReadResolution(12); pinMode(Vext, OUTPUT); digitalWrite(Vext, LOW); delay(100); 
+  pinMode(RST_OLED, OUTPUT); digitalWrite(RST_OLED, LOW); delay(20); digitalWrite(RST_OLED, HIGH); delay(50);
+  dispI.init(); dispI.flipScreenVertically();
+  Wire1.begin(41, 42); Wire1.setClock(100000);
+  dispE.begin(0x3C, true); dispE.setRotation(0); dispE.display(); delay(500);
+  dw_font_init(&myfont, 128, 64, drawP, clrP);
+  dw_font_setfont(&myfont, (dw_font_info_t*)&font_th_sarabun_new_regular20);
+  Mcu.begin(HELTEC_BOARD, SLOW_CLK_TPYE);
+  RadioEvents.RxDone = OnRxDone; RadioEvents.TxDone = OnTxDone; RadioEvents.TxTimeout = OnTxTimeout;
+  Radio.Init(&RadioEvents); Radio.SetChannel(RF_FREQ);
+  Radio.SetTxConfig(MODEM_LORA, 22, 0, 0, 7, 1, 8, false, true, 0, 0, false, 5000);
+  Radio.SetRxConfig(MODEM_LORA, 0, 7, 1, 0, 8, 0, false, 0, true, 0, 0, false, true);
+  Radio.Rx(0); updateBattery(); 
+  String hello = devID + "|" + String((int)stablePct) + "|POWERON โหนดพร้อมทำงาน";
+  Radio.Send((uint8_t*)hello.c_str(), hello.length()); wake(); updAll();
+}
+
+void loop() {
+  Radio.IrqProcess(); unsigned long now = millis(); handleLed();
+  if (now - lastChargeStep > 10000) { lastChargeStep = now; updateBattery(); if (scnOn) updDispI(); }
+  if(now - lastHb > HB_INTV) {
+    lastHb = now; String target = (relayID == "SEARCHING") ? "ALL" : relayID;
+    String pkt = devID + "|" + String((int)stablePct) + "|STATUS|Via:" + target;
+    Radio.Send((uint8_t*)pkt.c_str(), pkt.length());
+  }
+  if(rotated) { rotated = false; wake(); if(mode == LOCKED && unlockProgress >= UNLOCK_LIMIT) { mode = IDLE; beep(2, 50); unlockProgress = 0; } updDispE(); }
+  if(digitalRead(ROT_SW) == LOW) {
+    delay(30); if(digitalRead(ROT_SW) == LOW) {
+      wake(); unsigned long pStart = millis(); bool sosTriggered = false;
+      while(digitalRead(ROT_SW) == LOW) {
+        Radio.IrqProcess(); handleLed(); unsigned long holdTime = millis() - pStart;
+        if (mode != SEND) {
+          dispE.clearDisplay(); dispE.setTextSize(1); dispE.setCursor(25, 5); dispE.print("HOLD FOR SOS");
+          dispE.drawRect(14, 25, 100, 15, SH110X_WHITE); int barW = map(min((int)holdTime, 5000), 0, 5000, 0, 96);
+          dispE.fillRect(16, 27, barW, 11, SH110X_WHITE); dispE.setTextSize(2); 
+          if (holdTime < 5000) { dispE.setCursor(55, 45); dispE.print(String((5000-holdTime)/1000 + 1)); } else { dispE.setCursor(20, 45); dispE.print("SENT!"); }
+          dispE.display();
+          if(holdTime > 5000 && !sosTriggered) {
+            sosTriggered = true; mode = SEND; sosSound(); msg = "!! SOS ฉุกเฉิน !!"; senderName = "";
+            updAll(); digitalWrite(LED_PIN, HIGH); String pkt = devID + "|" + String((int)stablePct) + "|SOS ขอความช่วยเหลือด่วน|Direct";
+            Radio.Send((uint8_t*)pkt.c_str(), pkt.length()); break;
+          }
+        } delay(15);
+      }
+      if(!sosTriggered && (millis() - pStart > 50)) {
+         if(mode == LOCKED) { beep(1, 20); updDispE(); }
+         else if(mode == IDLE) { mode = MENU; beep(1, 50); updDispE(); }
+         else if(mode == MENU) {
+            if (menuIdx == (NUM_MENUS - 1)) { /* Charging Mode logic */ } 
+            else { mode = SEND; beep(1, 200); digitalWrite(LED_PIN, HIGH);
+              String pkt = devID + "|" + String((int)stablePct) + "|" + String(menus[menuIdx]) + "|Direct";
+              Radio.Send((uint8_t*)pkt.c_str(), pkt.length()); msg = "กำลังส่ง..."; senderName = ""; updAll();
+            }
+         }
+      }
+    }
+  }
+  if(scnOn && (millis() - scnTmr > 15000)) { dispI.displayOff(); dispE.oled_command(SH110X_DISPLAYOFF); scnOn = false; mode = LOCKED; unlockProgress = 0; }
+  if(scnOn && mode == IDLE && (millis() - lastScrl > 30)) { txtX -= 2; if(txtX < -300) txtX = 128; lastScrl = millis(); updDispE(); }
+}
+
+void OnTxDone() { digitalWrite(LED_PIN, LOW); if(mode == SEND) { mode = IDLE; wake(); msg = "ส่งข้อมูลแล้ว"; updAll(); } Radio.Rx(0); }
+void OnTxTimeout() { digitalWrite(LED_PIN, LOW); if(mode == SEND) { mode = IDLE; wake(); msg = "ส่งไม่สำเร็จ"; beep(1, 500); updAll(); } Radio.Rx(0); }
