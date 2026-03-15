@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Admins - LoRa Smart Village</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { font-family: 'Sarabun', 'Plus Jakarta Sans', sans-serif; background-color: #f4f7fb; }
+        .glass-panel { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.8); box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.05); }
+    </style>
+</head>
+<body class="p-6 md:p-10">
+
+    <div class="max-w-4xl mx-auto glass-panel p-8 rounded-[2rem]">
+        <div class="flex justify-between items-center mb-8">
+            <div>
+                <h2 class="text-2xl font-bold text-slate-800 tracking-tight font-['Plus_Jakarta_Sans']">จัดการผู้ดูแลระบบ</h2>
+                <p class="text-xs text-slate-500 font-medium mt-1">รายชื่อแอดมินที่มีสิทธิ์เข้าถึงระบบทั้งหมด</p>
+            </div>
+            <a href="index.html" class="flex items-center gap-2 px-4 py-2.5 bg-slate-100 text-slate-600 hover:bg-slate-200 rounded-xl font-bold text-sm transition-colors">
+                <i data-lucide="arrow-left" class="w-4 h-4"></i> กลับหน้าหลัก
+            </a>
+        </div>
+
+        <div class="bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm">
+            <table class="w-full text-left border-collapse whitespace-nowrap">
+                <thead>
+                    <tr class="bg-slate-50 border-b border-slate-100 text-slate-400 text-[11px] font-bold uppercase tracking-widest">
+                        <th class="px-6 py-4">ID</th>
+                        <th class="px-6 py-4">ชื่อผู้ใช้ (Username)</th>
+                        <th class="px-6 py-4">อีเมล (Email)</th>
+                        <th class="px-6 py-4 text-center">จัดการ</th>
+                    </tr>
+                </thead>
+                <tbody id="adminsTableBody" class="divide-y divide-slate-100 text-sm">
+                    <tr><td colspan="4" class="text-center py-8 text-slate-400"><i data-lucide="loader-2" class="w-6 h-6 animate-spin mx-auto mb-2"></i>กำลังโหลด...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+        
+        async function loadAdmins() {
+            try {
+                const res = await fetch('api/get_admins.php');
+                const data = await res.json();
+                const tbody = document.getElementById('adminsTableBody');
+                
+                if(data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="text-center py-8 text-slate-400 font-medium">ยังไม่มีข้อมูล</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = data.map(admin => `
+                    <tr class="hover:bg-slate-50/50 transition-colors">
+                        <td class="px-6 py-4 font-mono text-xs font-bold text-slate-400">#${admin.id}</td>
+                        <td class="px-6 py-4 font-bold text-indigo-600 flex items-center gap-2">
+                            <div class="w-6 h-6 rounded-full bg-indigo-100 flex justify-center items-center text-[10px] text-indigo-700">${admin.username.charAt(0).toUpperCase()}</div>
+                            ${admin.username}
+                        </td>
+                        <td class="px-6 py-4 text-slate-500 font-medium">${admin.email}</td>
+                        <td class="px-6 py-4 text-center">
+                            <button onclick="deleteAdmin('${admin.id}', '${admin.username}')" class="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 text-rose-600 rounded-lg text-xs font-bold hover:bg-rose-500 hover:text-white transition-all">
+                                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> ลบผู้ใช้
+                            </button>
+                        </td>
+                    </tr>
+                `).join('');
+                lucide.createIcons();
+            } catch(e) { console.error(e); }
+        }
+async function checkLoginStatus() {
+    try {
+        const res = await fetch('api/check_auth.php', { cache: 'no-store' });
+        const data = await res.json();
+        
+        if (data.auth === false) {
+            window.location.replace('login.html'); 
+        }
+    } catch (e) {
+        window.location.replace('login.html');
+    }
+}
+
+checkLoginStatus();
+
+        async function deleteAdmin(id, username) {
+            if(confirm(`⚠️ ยืนยันการลบแอดมิน "${username}" ออกจากระบบถาวรหรือไม่?`)) {
+                try {
+                    const res = await fetch('api/delete_admin.php', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id: id })
+                    });
+                    const data = await res.json();
+                    
+                    if(data.status === 'success') {
+                        alert('✅ ลบบัญชีผู้ดูแลระบบเรียบร้อยแล้ว');
+                        loadAdmins();
+                    } else {
+                        alert('❌ เกิดข้อผิดพลาด: ' + data.message);
+                    }
+                } catch(e) { alert('⚠️ เชื่อมต่อเซิร์ฟเวอร์ไม่ได้'); }
+            }
+        }
+
+        loadAdmins();
+    </script>
+    <script src="js/global_alert.js"></script>
+</body>
+</html>
