@@ -1,0 +1,55 @@
+วิธีการลงทะเบียนเครื่องใหม่ ตัวอย่างคือ (NODE-015)
+1.แก้ไขโค้ดฝั่งลูกบ้าน ไฟล์ NODE-XXX.ino
+// ของเดิม
+String devID = "NODE-001"; 
+// แก้เป็นชื่อเครื่องใหม่ (ต้องเป็นตัวพิมพ์ใหญ่ทั้งหมด)
+String devID = "NODE-015";
+
+2.เพิ่มชื่อบ้านในระบบแสดงผล
+// ของเดิม
+senderName = (senderID=="NODE-001") ? "233/2" : (senderID=="NODE-012") ? "234/1" : senderID;
+
+//  เติมบรรทัดของเครื่องใหม่เข้าไป
+senderName = (senderID=="NODE-001") ? "234/1" : 
+             (senderID=="NODE-012") ? "233/2" : 
+             (senderID=="NODE-015") ? "111/5" : senderID;
+
+3.แก้ไขโค้ดฝั่งส่วนกลาง (ไฟล์ Gateway.ino)
+
+String getHouseNumber(String nodeID) {
+  if (nodeID == "NODE-001") return "HOME: 234/1";
+  if (nodeID == "NODE-012") return "HOME: 233/2";
+  
+  // เติมบรรทัดนี้เพิ่มเข้าไป
+  if (nodeID == "NODE-015") return "HOME: 111/5"; 
+  
+  return nodeID; 
+}String getHouseNumber(String nodeID) {
+  if (nodeID == "NODE-001") return "HOME: 234/1";
+  if (nodeID == "NODE-012") return "HOME: 233/2";
+  
+  // เติมบรรทัดนี้เพิ่มเข้าไป
+  if (nodeID == "NODE-015") return "HOME: 111/5"; 
+  
+  return nodeID; 
+}
+
+4.แก้ไขโค้ดฝั่งระบบเว็บ (ไฟล์ api/ack_alert.php)
+
+$house_name = $node_id;
+if ($node_id == "NODE-001") $house_name = "234/1";
+if ($node_id == "NODE-012") $house_name = "233/2";
+
+//  เติมบรรทัดนี้เพิ่มเข้าไป
+if ($node_id == "NODE-015") $house_name = "111/5";
+
+5.เพิ่มข้อมูลในหน้าเว็บ
+เข้าไปที่หน้าเว็บ Dashboard 
+ไปที่เมนู "อุปกรณ์ LoRa" กดปุ่มเพิ่มอุปกรณ์ 
+รหัสอุปกรณ์ต้องพิมพ์เป็น ตัวพิมพ์ใหญ่ทั้งหมด และมีขีดคั่น ให้ตรงกับโค้ด เช่น NODE-015 ห้ามพิมพ์ node-015
+
+
+
+
+
+
